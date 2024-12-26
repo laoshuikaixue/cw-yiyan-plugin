@@ -148,7 +148,7 @@ class Plugin:
 
     def auto_scroll(self):
         """自动滚动功能"""
-        if self.test_widget is None:  # 若小组件不存在，则不执行
+        if self.test_widget is None:  # 如果小组件不存在，则不执行
             return
         scroll_area = self.test_widget.findChild(QScrollArea)
         if scroll_area:
