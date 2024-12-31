@@ -157,12 +157,24 @@ class Plugin:
         content_label = QLabel(content)
         content_label.setAlignment(Qt.AlignCenter)
         content_label.setWordWrap(True)  # 自动换行
-        content_label.setStyleSheet(f"font-size: 16px; color: {font_color}; padding: 10px; font-weight: bold;")
+        content_label.setStyleSheet(f"""
+            font-size: 16px;
+            color: {font_color};
+            padding: 10px;
+            font-weight: bold;
+            background: none;
+        """)
         scroll_content_layout.addWidget(content_label)
 
         author_label = QLabel(f"—— {author}")
         author_label.setAlignment(Qt.AlignRight)
-        author_label.setStyleSheet(f"font-size: 12px; color: {font_color}; padding-right: 10px; font-weight: bold;")
+        author_label.setStyleSheet(f"""
+            font-size: 12px;
+            color: {font_color};
+            padding-right: 10px;
+            font-weight: bold;
+            background: none;
+        """)
         scroll_content_layout.addWidget(author_label)
 
         scroll_area.setWidget(scroll_content)
