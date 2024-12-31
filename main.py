@@ -1,7 +1,7 @@
 import time
 import requests
-from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QWidget, QVBoxLayout
+from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QWidget, QVBoxLayout, QScrollBar
 from loguru import logger
 from qfluentwidgets import isDarkTheme
 
@@ -19,6 +19,49 @@ HEADERS = {
 }
 
 
+class SmoothScrollBar(QScrollBar):
+    """平滑滚动条"""
+    scrollFinished = pyqtSignal()
+
+    def __init__(self, parent=None):
+        QScrollBar.__init__(self, parent)
+        self.ani = QPropertyAnimation()
+        self.ani.setTargetObject(self)
+        self.ani.setPropertyName(b"value")
+        self.ani.setEasingCurve(QEasingCurve.OutCubic)
+        self.ani.setDuration(400)  # 调整动画持续时间
+        self.__value = self.value()
+        self.ani.finished.connect(self.scrollFinished)
+
+    def setValue(self, value: int):
+        if value == self.value():
+            return
+
+        self.ani.stop()
+        self.scrollFinished.emit()
+
+        self.ani.setStartValue(self.value())
+        self.ani.setEndValue(value)
+        self.ani.start()
+
+    def wheelEvent(self, e):
+        # 阻止默认的滚轮事件，使用自定义的滚动逻辑
+        e.ignore()
+
+
+class SmoothScrollArea(QScrollArea):
+    """平滑滚动区域"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.vScrollBar = SmoothScrollBar()
+        self.setVerticalScrollBar(self.vScrollBar)
+        self.setStyleSheet("QScrollBar:vertical { width: 0px; }")  # 隐藏原始滚动条
+
+    def wheelEvent(self, e):
+        self.vScrollBar.scrollValue(-e.angleDelta().y())
+
+
 class Plugin:
     def __init__(self, cw_contexts, method):
         self.cw_contexts = cw_contexts
@@ -29,14 +72,12 @@ class Plugin:
 
         self.method.register_widget(WIDGET_CODE, WIDGET_NAME, WIDGET_WIDTH)
 
-        # 初始化时更新一次一言
-        self.update_yiyan()
-
-        # 定时器：每100毫秒更新一次滚动位置
         self.scroll_position = 0
-        self.scroll_timer = QTimer()
-        self.scroll_timer.timeout.connect(self.auto_scroll)
-        self.scroll_timer.start(100)  # 每100毫秒执行一次滚动
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.auto_scroll)
+        self.timer.start(80)  # 调整滚动速度
+
+        self.update_yiyan()
 
     @staticmethod
     def fetch_yiyan():
@@ -81,18 +122,14 @@ class Plugin:
             self.update_widget_content("无法获取一言信息，请稍后再试。", "未知作者")
 
     def update_widget_content(self, content, author):
-        """更新小组件内容"""
         self.test_widget = self.method.get_widget(WIDGET_CODE)
         if self.test_widget:
             content_layout = self.find_child_layout(self.test_widget, 'contentLayout')
             content_layout.setSpacing(5)
 
-            # 修改标题
             self.method.change_widget_content(WIDGET_CODE, WIDGET_NAME, WIDGET_NAME)
-            # 清除旧内容
             self.clear_existing_content(content_layout)
 
-            # 创建滚动区域并设置内容
             scroll_area = self.create_scroll_area(content, author)
             content_layout.addWidget(scroll_area)
 
@@ -104,32 +141,25 @@ class Plugin:
         return widget.findChild(QHBoxLayout, layout_name)
 
     def create_scroll_area(self, content, author):
-        scroll_area = QScrollArea()
+        scroll_area = SmoothScrollArea()
         scroll_area.setWidgetResizable(True)
-        scroll_area.setStyleSheet("QScrollBar:vertical { width: 0px; }")  # 隐藏滚动条
 
         scroll_content = QWidget()
         scroll_content_layout = QVBoxLayout()
         scroll_content.setLayout(scroll_content_layout)
-
-        # 清除旧内容，避免重复或空白行
         self.clear_existing_content(scroll_content_layout)
 
-        # 根据当前主题设置样式
         if isDarkTheme():
             font_color = "#FFFFFF"  # 白色字体
         else:
             font_color = "#000000"  # 黑色字体
 
-        # 一言内容标签
         content_label = QLabel(content)
         content_label.setAlignment(Qt.AlignCenter)
         content_label.setWordWrap(True)  # 自动换行
         content_label.setStyleSheet(f"font-size: 16px; color: {font_color}; padding: 10px; font-weight: bold;")
-
         scroll_content_layout.addWidget(content_label)
 
-        # 作者标签
         author_label = QLabel(f"—— {author}")
         author_label.setAlignment(Qt.AlignRight)
         author_label.setStyleSheet(f"font-size: 12px; color: {font_color}; padding-right: 10px; font-weight: bold;")
@@ -150,20 +180,21 @@ class Plugin:
         """自动滚动功能"""
         if self.test_widget is None:  # 如果小组件不存在，则不执行
             return
-        scroll_area = self.test_widget.findChild(QScrollArea)
+
+        scroll_area = self.test_widget.findChild(SmoothScrollArea)
         if scroll_area:
             vertical_scrollbar = scroll_area.verticalScrollBar()
             if vertical_scrollbar:
                 max_value = vertical_scrollbar.maximum()
                 # 如果滚动条已经到达底部，滚动回顶部
                 if self.scroll_position >= max_value:
-                    vertical_scrollbar.setValue(0)  # 滚动到顶部
                     self.scroll_position = 0
                 else:
                     # 否则继续向下滚动
                     self.scroll_position += 1
-                    vertical_scrollbar.setValue(self.scroll_position)
+
+                vertical_scrollbar.setValue(self.scroll_position)
 
     def execute(self):
-        """首次执行，加载每日一言"""
+        """首次执行，加载一言数据"""
         self.update_yiyan()
