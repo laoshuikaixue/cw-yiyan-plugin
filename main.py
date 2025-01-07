@@ -77,8 +77,6 @@ class Plugin:
         self.timer.timeout.connect(self.auto_scroll)
         self.timer.start(80)  # 调整滚动速度
 
-        self.update_yiyan()
-
     @staticmethod
     def fetch_yiyan():
         """请求一言接口并获取数据，带重试机制"""
@@ -86,15 +84,14 @@ class Plugin:
         max_retries = 3
         while retry_count < max_retries:
             try:
-                # 使用模拟的 User-Agent 发送请求
-                response = requests.get(API_URL, headers=HEADERS, proxies={'http': None, 'https': None})  # 禁用代理，模拟浏览器请求
-                response.raise_for_status()  # 如果状态码不是200，则抛出异常
-                logger.debug(f"API 响应内容: {response.text}")  # 打印响应内容，检查返回的数据
+                response = requests.get(API_URL, headers=HEADERS, proxies={'http': None, 'https': None})
+                logger.debug(f"API 请求成功，状态码: {response.status_code}, 返回内容: {response.text}")
+                response.raise_for_status()
                 data = response.json().get("data", {})
                 if data:
                     return data
                 else:
-                    logger.warning("获取的数据为空，正在重试...")
+                    logger.warning("API 返回的数据为空，正在重试...")
             except requests.RequestException as e:
                 logger.error(f"请求一言信息失败: {e}")
 
@@ -122,18 +119,30 @@ class Plugin:
             self.update_widget_content("无法获取一言信息，请稍后再试。", "未知作者")
 
     def update_widget_content(self, content, author):
+        """更新小组件内容"""
         self.test_widget = self.method.get_widget(WIDGET_CODE)
-        if self.test_widget:
-            content_layout = self.find_child_layout(self.test_widget, 'contentLayout')
-            content_layout.setSpacing(5)
+        if not self.test_widget:  # 如果test_widget为空
+            logger.error(f"小组件未找到，WIDGET_CODE: {WIDGET_CODE}")
+            return
 
-            self.method.change_widget_content(WIDGET_CODE, WIDGET_NAME, WIDGET_NAME)
-            self.clear_existing_content(content_layout)
+        content_layout = self.find_child_layout(self.test_widget, 'contentLayout')
+        if not content_layout:
+            logger.error("未能找到小组件的'contentLayout'布局")
+            return
 
-            scroll_area = self.create_scroll_area(content, author)
+        content_layout.setSpacing(5)
+        self.method.change_widget_content(WIDGET_CODE, WIDGET_NAME, WIDGET_NAME)
+
+        # 清除旧内容
+        self.clear_existing_content(content_layout)
+
+        # 创建滚动区域并设置内容
+        scroll_area = self.create_scroll_area(content, author)
+        if scroll_area:
             content_layout.addWidget(scroll_area)
-
-        logger.success('每日一言内容更新成功！')
+            logger.success('每日一言内容更新成功！')
+        else:
+            logger.error("滚动区域创建失败")
 
     @staticmethod
     def find_child_layout(widget, layout_name):
@@ -183,29 +192,39 @@ class Plugin:
     @staticmethod
     def clear_existing_content(content_layout):
         """清除布局中的旧内容"""
-        for i in range(content_layout.count()):
-            child_widget = content_layout.itemAt(i).widget()
-            if child_widget:
-                child_widget.deleteLater()
+        while content_layout.count() > 0:
+            item = content_layout.takeAt(0)
+            if item:
+                child_widget = item.widget()
+                if child_widget:
+                    child_widget.deleteLater()  # 确保子组件被销毁
 
     def auto_scroll(self):
         """自动滚动功能"""
-        if self.test_widget is None:  # 如果小组件不存在，则不执行
+        if not self.test_widget:
+            logger.warning("test_widget 不存在，停止自动滚动")
             return
 
+        # 查找 SmoothScrollArea
         scroll_area = self.test_widget.findChild(SmoothScrollArea)
-        if scroll_area:
-            vertical_scrollbar = scroll_area.verticalScrollBar()
-            if vertical_scrollbar:
-                max_value = vertical_scrollbar.maximum()
-                # 如果滚动条已经到达底部，滚动回顶部
-                if self.scroll_position >= max_value:
-                    self.scroll_position = 0
-                else:
-                    # 否则继续向下滚动
-                    self.scroll_position += 1
+        if not scroll_area:
+            logger.warning("无法找到 SmoothScrollArea，停止自动滚动")
+            return
 
-                vertical_scrollbar.setValue(self.scroll_position)
+        # 查找滚动条
+        vertical_scrollbar = scroll_area.verticalScrollBar()
+        if not vertical_scrollbar:
+            logger.warning("无法找到垂直滚动条，停止自动滚动")
+            return
+
+        # 执行滚动逻辑
+        max_value = vertical_scrollbar.maximum()
+        if self.scroll_position >= max_value:
+            self.scroll_position = 0  # 滚动回顶部
+        else:
+            self.scroll_position += 1  # 向下滚动
+
+        vertical_scrollbar.setValue(self.scroll_position)
 
     def execute(self):
         """首次执行，加载一言数据"""
