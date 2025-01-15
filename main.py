@@ -100,8 +100,8 @@ class Plugin:
 
         # 如果3次重试都失败，则等待5分钟后再尝试
         logger.warning(f"重试 {max_retries} 次失败，等待5分钟后再试...")
-        time.sleep(5 * 60)  # 等待5分钟
-        return Plugin.fetch_yiyan()
+        QTimer.singleShot(5 * 60 * 1000, lambda: Plugin.fetch_yiyan())
+        return None
 
     def update_yiyan(self):
         """更新每日一言"""
