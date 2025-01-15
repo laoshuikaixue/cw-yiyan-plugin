@@ -1,7 +1,7 @@
 {
     "name": "每日一言",
     "description": "每天分享一句话，激励大家学习。",
-    "version": "1.3.1",
+    "version": "1.3.2",
     "plugin_ver": 1,
     "author": "LaoShui",
     "settings": false,
@@ -9,5 +9,5 @@
     "url": "https://github.com/laoshuikaixue/cw-yiyan-plugin",
     "branch": "main",
 
-    "update_date": "2025/01/07"
+    "update_date": "2025/01/15"
 }
