@@ -59,7 +59,8 @@ class SmoothScrollArea(QScrollArea):
         self.setStyleSheet("QScrollBar:vertical { width: 0px; }")  # 隐藏原始滚动条
 
     def wheelEvent(self, e):
-        self.vScrollBar.scrollValue(-e.angleDelta().y())
+        if hasattr(self.vScrollBar, 'scrollValue'):
+            self.vScrollBar.scrollValue(-e.angleDelta().y())
 
 
 class Plugin:
