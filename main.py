@@ -1,6 +1,6 @@
 import time
 import requests
-from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QThread
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QWidget, QVBoxLayout, QScrollBar
 from loguru import logger
 from qfluentwidgets import isDarkTheme
@@ -10,13 +10,40 @@ WIDGET_NAME = '每日一言 | LaoShui'
 WIDGET_WIDTH = 360
 API_URL = "https://api.codelife.cc/yiyan/info?lang=cn"
 
-# 模拟 Edge 浏览器的 User-Agent
 HEADERS = {
     'User-Agent': (
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 '
-        'Edge/91.0.864.64'
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/91.0.4472.124 Safari/537.36 Edge/91.0.864.64'
     )
 }
+
+
+class FetchThread(QThread):
+    """网络请求线程"""
+    fetch_finished = pyqtSignal(dict)  # 成功信号
+    fetch_failed = pyqtSignal()  # 失败信号
+
+    def __init__(self):
+        super().__init__()
+        self.max_retries = 3
+
+    def run(self):
+        retry_count = 0
+        while retry_count < self.max_retries:
+            try:
+                response = requests.get(API_URL, headers=HEADERS, proxies={'http': None, 'https': None})
+                response.raise_for_status()
+                data = response.json().get("data", {})
+                if data:
+                    self.fetch_finished.emit(data)
+                    return
+            except Exception as e:
+                logger.error(f"请求失败: {e}")
+
+            retry_count += 1
+            time.sleep(2)
+
+        self.fetch_failed.emit()
 
 
 class SmoothScrollBar(QScrollBar):
@@ -78,54 +105,51 @@ class Plugin:
         self.timer.timeout.connect(self.auto_scroll)
         self.timer.start(80)  # 调整滚动速度
 
-    @staticmethod
-    def fetch_yiyan():
-        """请求一言接口并获取数据，带重试机制"""
-        retry_count = 0
-        max_retries = 3
-        while retry_count < max_retries:
-            try:
-                response = requests.get(API_URL, headers=HEADERS, proxies={'http': None, 'https': None})
-                logger.debug(f"API 请求成功，状态码: {response.status_code}, 返回内容: {response.text}")
-                response.raise_for_status()
-                data = response.json().get("data", {})
-                if data:
-                    return data
-                else:
-                    logger.warning("API 返回的数据为空，正在重试...")
-            except requests.RequestException as e:
-                logger.error(f"请求一言信息失败: {e}")
+        # 新增定时器用于延迟重试
+        self.retry_timer = QTimer()
+        self.retry_timer.timeout.connect(self.update_yiyan)
 
-            retry_count += 1
-            time.sleep(2)
+        # 初始显示加载状态
+        self.show_loading()
 
-        # 如果3次重试都失败，则等待5分钟后再尝试
-        logger.warning(f"重试 {max_retries} 次失败，等待5分钟后再试...")
-        QTimer.singleShot(5 * 60 * 1000, lambda: Plugin.fetch_yiyan())
-        return None
+    def show_loading(self):
+        """显示加载状态"""
+        self.update_widget_content("加载中，请稍后...", "LaoShui")
 
     def update_yiyan(self):
-        """更新每日一言"""
-        yiyan_data = self.fetch_yiyan()
-        if yiyan_data:
-            # 提取一言内容和作者信息
-            content = yiyan_data.get("content", "无法获取一言信息。")
-            author = yiyan_data.get("author", "未知作者")
-            pic_url = yiyan_data.get("pic_url", "")  # 不会写 先放着
+        """启动异步更新每日一言"""
+        self.show_loading()
+        self.retry_timer.stop()
 
-            # 更新小组件内容
-            self.update_widget_content(content, author)
-        else:
-            # 如果获取失败，显示默认内容
-            self.update_widget_content("无法获取一言信息，请稍后再试。", "未知作者")
+        self.worker_thread = FetchThread()
+        self.worker_thread.fetch_finished.connect(self.handle_success)
+        self.worker_thread.fetch_failed.connect(self.handle_failure)
+        self.worker_thread.start()
+
+    def handle_success(self, data):
+        """处理成功响应"""
+        content = data.get("content", "无法获取一言信息。")
+        author = data.get("author", "未知作者")
+        self.update_widget_content(content, author)
+
+    def handle_failure(self):
+        """处理失败情况"""
+        logger.warning("重试3次失败，5分钟后自动重试")
+        self.update_widget_content("网络连接异常，5分钟后自动重试", "LaoShui")
+        self.retry_timer.start(5 * 60 * 1000)  # 5分钟重试
 
     def update_widget_content(self, content, author):
-        """更新小组件内容"""
+        """更新小组件内容（线程安全）"""
         self.test_widget = self.method.get_widget(WIDGET_CODE)
-        if not self.test_widget:  # 如果test_widget为空
+        if not self.test_widget:
             logger.error(f"小组件未找到，WIDGET_CODE: {WIDGET_CODE}")
             return
 
+        # 使用QTimer.singleShot确保在主线程执行UI操作
+        QTimer.singleShot(0, lambda: self._update_ui(content, author))
+
+    def _update_ui(self, content, author):
+        """实际执行UI更新的方法"""
         content_layout = self.find_child_layout(self.test_widget, 'contentLayout')
         if not content_layout:
             logger.error("未能找到小组件的'contentLayout'布局")
@@ -209,13 +233,13 @@ class Plugin:
         # 查找 SmoothScrollArea
         scroll_area = self.test_widget.findChild(SmoothScrollArea)
         if not scroll_area:
-            logger.warning("无法找到 SmoothScrollArea，停止自动滚动")
+            # logger.warning("无法找到 SmoothScrollArea，停止自动滚动") 实际使用不加log不然有错日志就被刷爆了
             return
 
         # 查找滚动条
         vertical_scrollbar = scroll_area.verticalScrollBar()
         if not vertical_scrollbar:
-            logger.warning("无法找到垂直滚动条，停止自动滚动")
+            # logger.warning("无法找到垂直滚动条，停止自动滚动") 实际使用不加log不然有错日志就被刷爆了
             return
 
         # 执行滚动逻辑
@@ -228,5 +252,5 @@ class Plugin:
         vertical_scrollbar.setValue(self.scroll_position)
 
     def execute(self):
-        """首次执行，加载一言数据"""
+        """首次执行"""
         self.update_yiyan()
