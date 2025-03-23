@@ -5,6 +5,9 @@
 ## 简介
 一个用于展示一言的插件。每天分享一句话，激励大家学习。
 
+## 使用说明
+您可以在主程序的 `SmoothScrollArea` 方法中修改 `is_infinite` 参数来控制是否启用无限循环。
+
 Powered By LaoShui @ 2025
 
 ## 贡献者
