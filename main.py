@@ -74,7 +74,7 @@ class SmoothScrollBar(QScrollBar):
     def wheelEvent(self, e):
         # 阻止默认的滚轮事件，使用自定义的滚动逻辑
         e.ignore()
-        
+
     def scrollValue(self, delta):
         """滚动一定值"""
         new_value = self.value() - delta / 120 * 40
@@ -94,35 +94,36 @@ class SmoothScrollArea(QScrollArea):
         self.content = ""
         self.author = ""
         self.last_added_pos = 0
-        self.is_infinite = True  # 是否启用无限滚动
+        self.is_infinite = False  # 是否启用无限滚动
 
     def wheelEvent(self, e):
         if hasattr(self.vScrollBar, 'scrollValue'):
             self.vScrollBar.scrollValue(-e.angleDelta().y())
-            
+
     def set_content(self, content, author, font_color="#000000"):
         """设置内容并保存，用于后续无限滚动"""
         self.content = content
         self.author = author
         self.font_color = font_color
-        
+
         # 初始化内容widget
         self.content_widget = QWidget()
         content_layout = QVBoxLayout(self.content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(5)
-        
+
         # 添加初始内容
         self.add_content_block(content_layout)
         # 再添加一个内容块以便滚动
-        self.add_content_block(content_layout)
-        
+        if self.is_infinite:
+            self.add_content_block(content_layout)
+
         # 设置滚动区域的widget
         self.setWidget(self.content_widget)
-        
+
         # 保存最后添加的位置
         self.last_added_pos = content_layout.count()
-        
+
     def add_content_block(self, layout):
         """添加一个内容块（包括内容和作者）"""
         content_label = QLabel(self.content)
@@ -147,12 +148,12 @@ class SmoothScrollArea(QScrollArea):
             background: none;
         """)
         layout.addWidget(author_label)
-        
+
     def check_scroll_position(self):
         """检查滚动位置，如果接近底部则添加更多内容"""
         if not self.is_infinite or not self.content_widget:
             return
-            
+
         scrollbar = self.verticalScrollBar()
         if scrollbar.value() > scrollbar.maximum() * 0.7:  # 当滚动超过70%时
             layout = self.content_widget.layout()
@@ -256,7 +257,7 @@ class Plugin:
             font_color = "#FFFFFF"  # 白色字体
         else:
             font_color = "#000000"  # 黑色字体
-            
+
         # 使用新的设置内容方法
         scroll_area.set_content(content, author, font_color)
         return scroll_area
@@ -287,9 +288,16 @@ class Plugin:
             return
 
         # 执行滚动逻辑
-        self.scroll_position += 1  # 向下滚动
+        max_value = vertical_scrollbar.maximum()
+        if max_value > 0 and self.scroll_position >= max_value:
+            self.scroll_position = 0  # 滚动回顶部
+        elif max_value == 0:
+            self.scroll_position = 0 # 防止 maximum() 为 0 的情况
+        else:
+            self.scroll_position += 1  # 向下滚动
+
         vertical_scrollbar.setValue(self.scroll_position)
-        
+
         # 检查是否需要添加更多内容
         scroll_area.check_scroll_position()
 
