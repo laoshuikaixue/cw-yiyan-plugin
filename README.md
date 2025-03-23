@@ -6,3 +6,9 @@
 一个用于展示一言的插件。每天分享一句话，激励大家学习。
 
 Powered By LaoShui @ 2025
+
+## 贡献者
+
+Thanks goes to these wonderful people:
+
+[![Contributors](http://contrib.nn.ci/api?repo=laoshuikaixue/cw-yiyan-plugin)](https://github.com/laoshuikaixue/cw-yiyan-plugin/graphs/contributors)
