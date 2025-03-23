@@ -94,7 +94,7 @@ class SmoothScrollArea(QScrollArea):
         self.content = ""
         self.author = ""
         self.last_added_pos = 0
-        self.is_infinite = False  # 是否启用无限滚动
+        self.is_infinite = True  # 是否启用无限滚动
 
     def wheelEvent(self, e):
         if hasattr(self.vScrollBar, 'scrollValue'):
@@ -292,7 +292,7 @@ class Plugin:
         if max_value > 0 and self.scroll_position >= max_value:
             self.scroll_position = 0  # 滚动回顶部
         elif max_value == 0:
-            self.scroll_position = 0 # 防止 maximum() 为 0 的情况
+            self.scroll_position = 0  # 防止 maximum() 为 0 的情况
         else:
             self.scroll_position += 1  # 向下滚动
 
