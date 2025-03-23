@@ -75,6 +75,12 @@ class SmoothScrollBar(QScrollBar):
         # 阻止默认的滚轮事件，使用自定义的滚动逻辑
         e.ignore()
 
+    def scrollValue(self, delta):
+        """滚动一定值"""
+        new_value = self.value() - delta / 120 * 40
+        new_value = max(0, min(new_value, self.maximum()))
+        self.setValue(int(new_value))
+
 
 class SmoothScrollArea(QScrollArea):
     """平滑滚动区域"""
@@ -84,10 +90,75 @@ class SmoothScrollArea(QScrollArea):
         self.vScrollBar = SmoothScrollBar()
         self.setVerticalScrollBar(self.vScrollBar)
         self.setStyleSheet("QScrollBar:vertical { width: 0px; }")  # 隐藏原始滚动条
+        self.content_widget = None
+        self.content = ""
+        self.author = ""
+        self.last_added_pos = 0
+        self.is_infinite = True  # 是否启用无限滚动
 
     def wheelEvent(self, e):
         if hasattr(self.vScrollBar, 'scrollValue'):
             self.vScrollBar.scrollValue(-e.angleDelta().y())
+
+    def set_content(self, content, author, font_color="#000000"):
+        """设置内容并保存，用于后续无限滚动"""
+        self.content = content
+        self.author = author
+        self.font_color = font_color
+
+        # 初始化内容widget
+        self.content_widget = QWidget()
+        content_layout = QVBoxLayout(self.content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(5)
+
+        # 添加初始内容
+        self.add_content_block(content_layout)
+        # 再添加一个内容块以便滚动
+        if self.is_infinite:
+            self.add_content_block(content_layout)
+
+        # 设置滚动区域的widget
+        self.setWidget(self.content_widget)
+
+        # 保存最后添加的位置
+        self.last_added_pos = content_layout.count()
+
+    def add_content_block(self, layout):
+        """添加一个内容块（包括内容和作者）"""
+        content_label = QLabel(self.content)
+        content_label.setAlignment(Qt.AlignCenter)
+        content_label.setWordWrap(True)
+        content_label.setStyleSheet(f"""
+            font-size: 16px;
+            color: {self.font_color};
+            padding: 10px;
+            font-weight: bold;
+            background: none;
+        """)
+        layout.addWidget(content_label)
+
+        author_label = QLabel(f"—— {self.author}")
+        author_label.setAlignment(Qt.AlignRight)
+        author_label.setStyleSheet(f"""
+            font-size: 12px;
+            color: {self.font_color};
+            padding-right: 10px;
+            font-weight: bold;
+            background: none;
+        """)
+        layout.addWidget(author_label)
+
+    def check_scroll_position(self):
+        """检查滚动位置，如果接近底部则添加更多内容"""
+        if not self.is_infinite or not self.content_widget:
+            return
+
+        scrollbar = self.verticalScrollBar()
+        if scrollbar.value() > scrollbar.maximum() * 0.7:  # 当滚动超过70%时
+            layout = self.content_widget.layout()
+            self.add_content_block(layout)
+            self.last_added_pos = layout.count()
 
 
 class Plugin:
@@ -101,6 +172,7 @@ class Plugin:
         self.method.register_widget(WIDGET_CODE, WIDGET_NAME, WIDGET_WIDTH)
 
         self.scroll_position = 0
+        self.enable_scrolling = False  # 添加控制滚动的标志
         self.timer = QTimer()
         self.timer.timeout.connect(self.auto_scroll)
         self.timer.start(80)  # 调整滚动速度
@@ -114,6 +186,7 @@ class Plugin:
 
     def show_loading(self):
         """显示加载状态"""
+        self.enable_scrolling = False  # 加载中禁用滚动
         self.update_widget_content("加载中，请稍后...", "LaoShui")
 
     def update_yiyan(self):
@@ -130,11 +203,13 @@ class Plugin:
         """处理成功响应"""
         content = data.get("content", "无法获取一言信息。")
         author = data.get("author", "未知作者")
+        self.enable_scrolling = True  # 成功获取数据后启用滚动
         self.update_widget_content(content, author)
 
     def handle_failure(self):
         """处理失败情况"""
         logger.warning("重试3次失败，5分钟后自动重试")
+        self.enable_scrolling = False  # 失败时禁用滚动
         self.update_widget_content("网络连接异常，5分钟后自动重试", "LaoShui")
         self.retry_timer.start(5 * 60 * 1000)  # 5分钟重试
 
@@ -178,40 +253,13 @@ class Plugin:
         scroll_area = SmoothScrollArea()
         scroll_area.setWidgetResizable(True)
 
-        scroll_content = QWidget()
-        scroll_content_layout = QVBoxLayout()
-        scroll_content.setLayout(scroll_content_layout)
-        self.clear_existing_content(scroll_content_layout)
-
         if isDarkTheme():
             font_color = "#FFFFFF"  # 白色字体
         else:
             font_color = "#000000"  # 黑色字体
 
-        content_label = QLabel(content)
-        content_label.setAlignment(Qt.AlignCenter)
-        content_label.setWordWrap(True)  # 自动换行
-        content_label.setStyleSheet(f"""
-            font-size: 16px;
-            color: {font_color};
-            padding: 10px;
-            font-weight: bold;
-            background: none;
-        """)
-        scroll_content_layout.addWidget(content_label)
-
-        author_label = QLabel(f"—— {author}")
-        author_label.setAlignment(Qt.AlignRight)
-        author_label.setStyleSheet(f"""
-            font-size: 12px;
-            color: {font_color};
-            padding-right: 10px;
-            font-weight: bold;
-            background: none;
-        """)
-        scroll_content_layout.addWidget(author_label)
-
-        scroll_area.setWidget(scroll_content)
+        # 使用新的设置内容方法
+        scroll_area.set_content(content, author, font_color)
         return scroll_area
 
     @staticmethod
@@ -226,30 +274,32 @@ class Plugin:
 
     def auto_scroll(self):
         """自动滚动功能"""
-        if not self.test_widget:
-            # logger.warning("自动滚动失败，小组件未初始化或已被销毁") 不能加log不然没启用的话日志就被刷爆了
+        if not self.test_widget or not self.enable_scrolling:
             return
 
         # 查找 SmoothScrollArea
         scroll_area = self.test_widget.findChild(SmoothScrollArea)
         if not scroll_area:
-            # logger.warning("无法找到 SmoothScrollArea，停止自动滚动") 实际使用不加log不然有错日志就被刷爆了
             return
 
         # 查找滚动条
         vertical_scrollbar = scroll_area.verticalScrollBar()
         if not vertical_scrollbar:
-            # logger.warning("无法找到垂直滚动条，停止自动滚动") 实际使用不加log不然有错日志就被刷爆了
             return
 
         # 执行滚动逻辑
         max_value = vertical_scrollbar.maximum()
-        if self.scroll_position >= max_value:
+        if max_value > 0 and self.scroll_position >= max_value:
             self.scroll_position = 0  # 滚动回顶部
+        elif max_value == 0:
+            self.scroll_position = 0  # 防止 maximum() 为 0 的情况
         else:
             self.scroll_position += 1  # 向下滚动
 
         vertical_scrollbar.setValue(self.scroll_position)
+
+        # 检查是否需要添加更多内容
+        scroll_area.check_scroll_position()
 
     def execute(self):
         """首次执行"""
