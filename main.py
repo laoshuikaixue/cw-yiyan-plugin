@@ -1,5 +1,6 @@
 import time
 import requests
+from datetime import datetime, timedelta
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal, QThread
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QScrollArea, QWidget, QVBoxLayout, QScrollBar
 from loguru import logger
@@ -181,8 +182,52 @@ class Plugin:
         self.retry_timer = QTimer()
         self.retry_timer.timeout.connect(self.update_yiyan)
 
+        # 新增每日定时更新定时器
+        self.daily_timer = QTimer()
+        self.daily_timer.timeout.connect(self.daily_update)
+        
+        # 添加每日更新状态跟踪
+        self.last_update_date = None
+        
+        self.setup_daily_update()
+
         # 初始显示加载状态
         self.show_loading()
+
+    def setup_daily_update(self):
+        """设置每日1点自动更新"""
+        now = datetime.now()
+        # 计算下一个1点的时间
+        next_update = now.replace(hour=1, minute=0, second=0, microsecond=0)
+        
+        # 如果当前时间已经过了今天的1点，则设置为明天1点
+        if now >= next_update:
+            next_update += timedelta(days=1)
+        
+        # 计算距离下次更新的毫秒数
+        time_until_update = (next_update - now).total_seconds() * 1000
+        
+        # 设置单次定时器，到时间后触发更新并重新设置下一次
+        self.daily_timer.setSingleShot(True)
+        self.daily_timer.start(int(time_until_update))
+        
+        logger.info(f"下次自动更新时间: {next_update.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    def daily_update(self):
+        """每日定时更新"""
+        today = datetime.now().date()
+        
+        # 检查今天是否已经更新过
+        if self.last_update_date == today:
+            logger.info("今日已更新过，跳过本次更新")
+            self.setup_daily_update()  # 重新设置下一次更新
+            return
+        
+        # 执行更新
+        self.update_yiyan()
+        
+        # 重新设置下一次更新
+        self.setup_daily_update()
 
     def show_loading(self):
         """显示加载状态"""
@@ -205,6 +250,10 @@ class Plugin:
         author = data.get("author", "未知作者")
         self.enable_scrolling = True  # 成功获取数据后启用滚动
         self.update_widget_content(content, author)
+        
+        # 记录更新日期
+        self.last_update_date = datetime.now().date()
+        logger.info(f"一言更新成功，更新日期: {self.last_update_date}")
 
     def handle_failure(self):
         """处理失败情况"""
